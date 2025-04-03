@@ -1,6 +1,6 @@
 {
   "name": "@wonderwhy-er/desktop-commander",
-  "version": "0.1.24",
+  "version": "0.1.28",
   "description": "MCP server for terminal operations and file editing",
   "license": "MIT",
   "author": "Eduards Ruzga",
@@ -27,14 +27,15 @@
     "build": "tsc && shx cp setup-claude-server.js dist/ && shx chmod +x dist/*.js",
     "watch": "tsc --watch",
     "start": "node dist/index.js",
+    "start:debug": "node --inspect-brk=9229 dist/index.js",
     "setup": "npm install && npm run build && node setup-claude-server.js",
+    "setup:debug": "npm install && npm run build && node setup-claude-server.js --debug",
     "prepare": "npm run build",
     "test": "node test/test.js",
     "test:watch": "nodemon test/test.js",
     "link:local": "npm run build && npm link",
     "unlink:local": "npm unlink",
-    "inspector": "npx @modelcontextprotocol/inspector dist/index.js",
-    "publish": "npm publish"
+    "inspector": "npx @modelcontextprotocol/inspector dist/index.js"
   },
   "publishConfig": {
     "access": "public"
@@ -62,6 +63,8 @@
     "@modelcontextprotocol/sdk": "^1.8.0",
     "@vscode/ripgrep": "^1.15.9",
     "glob": "^10.3.10",
+    "node-machine-id": "^1.1.12",
+    "posthog-node": "^4.11.1",
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.23.5"
   },

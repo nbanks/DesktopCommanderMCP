@@ -10,6 +10,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { commandManager } from './command-manager.js';
 import { z } from "zod";
 import { DesktopCommanderArgsSchema } from './tools/schemas.js';
+import { capture } from "./utils.js";
 
 // Define types for Mode (internally we use consistent casing)
 export type Mode = 'granular' | 'grouped' | 'YOLO';
@@ -146,7 +147,7 @@ const ALL_TOOLS_METADATA: Record<string, { description: string, schema: z.ZodTyp
   "read_file": {
     description:
       "Read the complete contents of a file from the file system. " +
-      "Handles various text encodings and provides detailed error messages " +
+      "Reads UTF-8 text and provides detailed error messages " +
       "if the file cannot be read. Only works within allowed directories.",
     schema: ReadFileArgsSchema
   },
@@ -186,7 +187,7 @@ const ALL_TOOLS_METADATA: Record<string, { description: string, schema: z.ZodTyp
   },
   "search_files": {
     description:
-      "Recursively search for files and directories matching a pattern. " +
+      "Finds files by name using a case-insensitive substring matching. " +
       "Searches through all subdirectories from the starting path. " +
       "Only searches within allowed directories.",
     schema: SearchFilesArgsSchema
@@ -214,8 +215,8 @@ const ALL_TOOLS_METADATA: Record<string, { description: string, schema: z.ZodTyp
   "edit_block": {
     description:
       "Apply surgical text replacements to files. Best for small changes (<20% of file size). " +
-      "Multiple blocks can be used for separate changes. Will verify changes after application. " +
-      "Format: filepath, then <<<<<<< SEARCH, content to find, =======, new content, >>>>>>> REPLACE.",
+      "Call repeatedly to change multiple blocks. Will verify changes after application. " +
+      "Format:\nfilepath\n<<<<<<< SEARCH\ncontent to find\n=======\nnew content\n>>>>>>> REPLACE",
     schema: EditBlockArgsSchema
   }
 };
@@ -355,6 +356,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
   try {
+    capture('server_call_tool');
     const { name: toolNameCalled, arguments: args } = request.params;
     let subtool: string;
     let finalArgs: any; // This will hold the correctly parsed args for the switch
@@ -421,6 +423,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
     switch (subtool) {
       // Terminal tools
       case "execute_command": {
+        capture('server_execute_command');
         if (finalArgs.command === undefined) throw new Error("Missing 'command' for execute_command");
         return executeCommand({
           command: finalArgs.command,
@@ -428,22 +431,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         });
       }
       case "read_output": {
+        capture('server_read_output');
         if (finalArgs.pid === undefined) throw new Error("Missing 'pid' for read_output");
         return readOutput({ pid: finalArgs.pid });
       }
       case "force_terminate": {
+        capture('server_force_terminate');
         if (finalArgs.pid === undefined) throw new Error("Missing 'pid' for force_terminate");
         return forceTerminate({ pid: finalArgs.pid });
       }
       case "list_sessions":
+        capture('server_list_sessions');
         return listSessions();
       case "list_processes":
+        capture('server_list_processes');
         return listProcesses();
       case "kill_process": {
+        capture('server_kill_process');
         if (finalArgs.pid === undefined) throw new Error("Missing 'pid' for kill_process");
         return killProcess({ pid: finalArgs.pid });
       }
       case "block_command": {
+        capture('server_block_command');
         if (finalArgs.command === undefined) throw new Error("Missing 'command' for block_command");
         const blockResult = await commandManager.blockCommand(finalArgs.command);
         return {
@@ -451,6 +460,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         };
       }
       case "unblock_command": {
+        capture('server_unblock_command');
         if (finalArgs.command === undefined) throw new Error("Missing 'command' for unblock_command");
         const unblockResult = await commandManager.unblockCommand(finalArgs.command);
         return {
@@ -458,6 +468,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         };
       }
       case "list_blocked_commands": {
+        capture('server_list_blocked_commands');
         const blockedCommands = await commandManager.listBlockedCommands();
         return {
           content: [{ type: "text", text: blockedCommands.join('\n') }],
@@ -466,81 +477,154 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
       
       // Filesystem tools
       case "edit_block": {
-        if (finalArgs.blockContent === undefined) throw new Error("Missing 'blockContent' for edit_block");
-        const { filePath, searchReplace } = await parseEditBlock(finalArgs.blockContent);
-        await performSearchReplace(filePath, searchReplace);
-        return {
-          content: [{ type: "text", text: `Successfully applied edit to ${filePath}` }],
-        };
+        capture('server_edit_block');
+        try {
+          if (finalArgs.blockContent === undefined) throw new Error("Missing 'blockContent' for edit_block");
+          const { filePath, searchReplace } = await parseEditBlock(finalArgs.blockContent);
+          await performSearchReplace(filePath, searchReplace);
+          return {
+            content: [{ type: "text", text: `Successfully applied edit to ${filePath}` }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          }; 
+        }
       }
       case "read_file": {
-        if (finalArgs.path === undefined) throw new Error("Missing 'path' for read_file");
-        const content = await readFile(finalArgs.path);
-        return {
-          content: [{ type: "text", text: content }],
-        };
+        capture('server_read_file');
+        try {
+          if (finalArgs.path === undefined) throw new Error("Missing 'path' for read_file");
+          const content = await readFile(finalArgs.path);
+          return {
+            content: [{ type: "text", text: content }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          };
+        }
       }
       case "read_multiple_files": {
-        if (finalArgs.paths === undefined) throw new Error("Missing 'paths' for read_multiple_files");
-        const results = await readMultipleFiles(finalArgs.paths);
-        return {
-          content: [{ type: "text", text: results.join("\n---\n") }],
-        };
+        capture('server_read_multiple_files');
+        try {
+          if (finalArgs.paths === undefined) throw new Error("Missing 'paths' for read_multiple_files");
+          const results = await readMultipleFiles(finalArgs.paths);
+          return {
+            content: [{ type: "text", text: results.join("\n---\n") }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          };
+        }
       }
       case "write_file": {
-        if (finalArgs.path === undefined) throw new Error("Missing 'path' for write_file");
-        if (finalArgs.content === undefined) throw new Error("Missing 'content' for write_file");
-        await writeFile(finalArgs.path, finalArgs.content);
-        return {
-          content: [{ type: "text", text: `Successfully wrote to ${finalArgs.path}` }],
-        };
+        capture('server_write_file');
+        try {
+          if (finalArgs.path === undefined) throw new Error("Missing 'path' for write_file");
+          if (finalArgs.content === undefined) throw new Error("Missing 'content' for write_file");
+          await writeFile(finalArgs.path, finalArgs.content);
+          return {
+            content: [{ type: "text", text: `Successfully wrote to ${finalArgs.path}` }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          };
+        }
       }
       case "create_directory": {
-        if (finalArgs.path === undefined) throw new Error("Missing 'path' for create_directory");
-        await createDirectory(finalArgs.path);
-        return {
-          content: [{ type: "text", text: `Successfully created directory ${finalArgs.path}` }],
-        };
+        capture('server_create_directory');
+        try {
+          if (finalArgs.path === undefined) throw new Error("Missing 'path' for create_directory");
+          await createDirectory(finalArgs.path);
+          return {
+            content: [{ type: "text", text: `Successfully created directory ${finalArgs.path}` }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          };
+        }
       }
       case "list_directory": {
-        if (finalArgs.path === undefined) throw new Error("Missing 'path' for list_directory");
-        const entries = await listDirectory(finalArgs.path);
-        return {
-          content: [{ type: "text", text: entries.join('\n') }],
-        };
+        capture('server_list_directory');
+        try {
+          if (finalArgs.path === undefined) throw new Error("Missing 'path' for list_directory");
+          const entries = await listDirectory(finalArgs.path);
+          return {
+            content: [{ type: "text", text: entries.join('\n') }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          };
+        }
       }
       case "move_file": {
-        if (finalArgs.source === undefined) throw new Error("Missing 'source' for move_file");
-        if (finalArgs.destination === undefined) throw new Error("Missing 'destination' for move_file");
-        await moveFile(finalArgs.source, finalArgs.destination);
-        return {
-          content: [{ type: "text", text: `Successfully moved ${finalArgs.source} to ${finalArgs.destination}` }],
-        };
+        capture('server_move_file');
+        try {
+          if (finalArgs.source === undefined) throw new Error("Missing 'source' for move_file");
+          if (finalArgs.destination === undefined) throw new Error("Missing 'destination' for move_file");
+          await moveFile(finalArgs.source, finalArgs.destination);
+          return {
+            content: [{ type: "text", text: `Successfully moved ${finalArgs.source} to ${finalArgs.destination}` }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          };
+        }
       }
       case "search_files": {
-        if (finalArgs.path === undefined) throw new Error("Missing 'path' for search_files");
-        if (finalArgs.pattern === undefined) throw new Error("Missing 'pattern' for search_files");
-        const results = await searchFiles(finalArgs.path, finalArgs.pattern);
-        return {
-          content: [{ type: "text", text: results.length > 0 ? results.join('\n') : "No matches found" }],
-        };
+        capture('server_search_files');
+        try {
+          if (finalArgs.path === undefined) throw new Error("Missing 'path' for search_files");
+          if (finalArgs.pattern === undefined) throw new Error("Missing 'pattern' for search_files");
+          const results = await searchFiles(finalArgs.path, finalArgs.pattern);
+          return {
+            content: [{ type: "text", text: results.length > 0 ? results.join('\n') : "No matches found" }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          };
+        }
       }
       case "search_code": {
-        if (finalArgs.path === undefined) throw new Error("Missing 'path' for search_code");
-        if (finalArgs.pattern === undefined) throw new Error("Missing 'pattern' for search_code");
-        const results = await searchTextInFiles({
-          rootPath: finalArgs.path,
-          pattern: finalArgs.pattern,
-          filePattern: finalArgs.filePattern,
-          ignoreCase: finalArgs.ignoreCase,
-          maxResults: finalArgs.maxResults,
-          includeHidden: finalArgs.includeHidden,
-          contextLines: finalArgs.contextLines,
-        });
+        capture('server_search_code');
+        let results = [];
+        try {
+          if (finalArgs.path === undefined) throw new Error("Missing 'path' for search_code");
+          if (finalArgs.pattern === undefined) throw new Error("Missing 'pattern' for search_code");
+          results = await searchTextInFiles({
+            rootPath: finalArgs.path,
+            pattern: finalArgs.pattern,
+            filePattern: finalArgs.filePattern,
+            ignoreCase: finalArgs.ignoreCase,
+            maxResults: finalArgs.maxResults,
+            includeHidden: finalArgs.includeHidden,
+            contextLines: finalArgs.contextLines,
+          });
 
-        if (results.length === 0) {
+          if (results.length === 0) {
+            return {
+              content: [{ type: "text", text: "No matches found" }],
+            };
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
           return {
-            content: [{ type: "text", text: "No matches found" }],
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
           };
         }
 
@@ -561,18 +645,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         };
       }
       case "get_file_info": {
-        if (finalArgs.path === undefined) throw new Error("Missing 'path' for get_file_info");
-        const info = await getFileInfo(finalArgs.path);
-        return {
-          content: [{ 
-            type: "text", 
-            text: Object.entries(info)
-              .map(([key, value]) => `${key}: ${value}`)
-              .join('\n') 
-          }],
-        };
+        capture('server_get_file_info');
+        try {
+          if (finalArgs.path === undefined) throw new Error("Missing 'path' for get_file_info");
+          const info = await getFileInfo(finalArgs.path);
+          return {
+            content: [{ 
+              type: "text", 
+              text: Object.entries(info)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join('\n') 
+            }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          };
+        }
       }
       case "list_allowed_directories": {
+        capture('server_list_allowed_directories');
         const directories = listAllowedDirectories();
         return {
           content: [{ 
@@ -583,12 +676,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
       }
 
       default:
+        capture('server_unknown_tool', {
+          name: subtool
+        });
         throw new Error(`Unknown subtool: ${subtool}`);
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    // We can't reference subtool here if it might not be defined
-    console.error(`Error processing tool call '${request.params.name}':`, error);
+    capture('server_request_error', {
+      error: errorMessage
+    });
     return {
       content: [{ type: "text", text: `Error: ${errorMessage}` }],
       isError: true,

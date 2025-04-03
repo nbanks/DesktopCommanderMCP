@@ -1,5 +1,5 @@
 # Desktop Commander MCP
-
+### Search, update, manage files and run terminal commands with AI
 
 [![npm downloads](https://img.shields.io/npm/dw/@wonderwhy-er/desktop-commander)](https://www.npmjs.com/package/@wonderwhy-er/desktop-commander)
 [![smithery badge](https://smithery.ai/badge/@wonderwhy-er/desktop-commander)](https://smithery.ai/server/@wonderwhy-er/desktop-commander)
@@ -9,8 +9,8 @@
 
 Short version. Two key things. Terminal commands and diff based file editing.
 
-![Desktop Commander MCP](https://raw.githubusercontent.com/wonderwhy-er/ClaudeComputerCommander/main/logo.png)
 
+![Desktop Commander MCP](https://raw.githubusercontent.com/wonderwhy-er/ClaudeComputerCommander/main/header.png)
 <a href="https://glama.ai/mcp/servers/zempur9oh4">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/zempur9oh4/badge" alt="Claude Desktop Commander MCP server" />
 </a>
@@ -51,20 +51,25 @@ This is server that allows Claude desktop app to execute long-running terminal c
 ## Installation
 First, ensure you've downloaded and installed the [Claude Desktop app](https://claude.ai/download) and you have [npm installed](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm).
 
-### Option 1: Installing via Smithery
+### Option 1: Install through npx
+Just run this in terminal
+```
+npx @wonderwhy-er/desktop-commander@latest setup
+```
+
+For debugging mode (allows Node.js inspector connection):
+```
+npx @wonderwhy-er/desktop-commander@latest setup --debug
+```
+Restart Claude if running
+
+### Option 2: Installing via Smithery
 
 To install Desktop Commander for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@wonderwhy-er/desktop-commander):
 
 ```bash
 npx -y @smithery/cli install @wonderwhy-er/desktop-commander --client claude
 ```
-
-### Option 2: Install trough npx
-Just run this in terminal
-```
-npx @wonderwhy-er/desktop-commander setup
-```
-Restart Claude if running
 
 ### Option 3: Add to claude_desktop_config by hand
 Add this entry to your claude_desktop_config.json:
@@ -134,7 +139,7 @@ The server provides these capabilities, presented to Claude based on the selecte
 - `move_file`: Move/rename files
 - `search_files`: Pattern-based file search
 - `get_file_info`: File metadata
-- `code_search`: Recursive ripgrep based text and code search
+- `search_code`: Recursive ripgrep based text and code search
 
 ### Edit Tools
 - `edit_block`: Apply surgical text replacements (best for changes <20% of file size)
@@ -144,9 +149,9 @@ Search/Replace Block Format:
 ```
 filepath.ext
 <<<<<<< SEARCH
-existing code to replace
+content to find
 =======
-new code to insert
+new content
 >>>>>>> REPLACE
 ```
 
@@ -168,6 +173,40 @@ For commands that may take a while:
 2. Command continues in background
 3. Use `read_output` with PID to get new output
 4. Use `force_terminate` to stop if needed
+
+## Debugging
+
+If you need to debug the server, you can install it in debug mode:
+
+```bash
+# Using npx
+npx @wonderwhy-er/desktop-commander@latest setup --debug
+
+# Or if installed locally
+npm run setup:debug
+```
+
+This will:
+1. Configure Claude to use a separate "desktop-commander" server
+2. Enable Node.js inspector protocol with `--inspect-brk=9229` flag
+3. Pause execution at the start until a debugger connects
+4. Enable additional debugging environment variables
+
+To connect a debugger:
+- In Chrome, visit `chrome://inspect` and look for the Node.js instance
+- In VS Code, use the "Attach to Node Process" debug configuration
+- Other IDEs/tools may have similar "attach" options for Node.js debugging
+
+Important debugging notes:
+- The server will pause on startup until a debugger connects (due to the `--inspect-brk` flag)
+- If you don't see activity during debugging, ensure you're connected to the correct Node.js process
+- Multiple Node processes may be running; connect to the one on port 9229
+- The debug server is identified as "desktop-commander-debug" in Claude's MCP server list
+
+Troubleshooting:
+- If Claude times out while trying to use the debug server, your debugger might not be properly connected
+- When properly connected, the process will continue execution after hitting the first breakpoint
+- You can add additional breakpoints in your IDE once connected
 
 ## Model Context Protocol Integration
 
@@ -276,6 +315,18 @@ No. This tool works with Claude Desktop's standard Pro subscription ($20/month),
 
 ### I'm having trouble installing or using the tool. Where can I get help?
 Join our [Discord server](https://discord.gg/kQ27sNnZr7) for community support, check the [GitHub issues](https://github.com/wonderwhy-er/ClaudeComputerCommander/issues) for known problems, or review the [full FAQ](FAQ.md) for troubleshooting tips. You can also visit our [website FAQ section](https://desktopcommander.app#faq) for a more user-friendly experience. If you encounter a new issue, please consider [opening a GitHub issue](https://github.com/wonderwhy-er/ClaudeComputerCommander/issues/new) with details about your problem.
+
+## Data Collection
+
+During installation and setup, Desktop Commander collects anonymous usage data to help improve the tool. This includes:
+- Operating system information
+- Node.js and NPM versions
+- Installation method and shell environment
+- Error messages (if any occur during setup)
+
+This data is collected using PostHog analytics and is associated with a machine-generated unique ID. No personal information is collected. This helps us understand how the tool is being used and identify common issues.
+
+We are currently working on adding a built-in opt-out option for this data collection in an upcoming release. For now, if you wish to opt out, you can block network connections to `eu.i.posthog.com` in your firewall settings.
 
 ## License
 
